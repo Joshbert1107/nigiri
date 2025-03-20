@@ -930,4 +930,26 @@ std::vector<std::vector<fare_transfer>> get_fares(timetable const& tt,
                       }));
 }
 
+struct ticket_graph_node
+{
+  fare_product_idx_t ticket_idx;
+  std::vector<ticket_graph_node> children;
+};
+
+std::vector<fare_transfer> get_optimal_tickets(journey journey, rider_category_idx_t rider_category, std::vector<ticket_graph_node> ticket_graph)
+{
+  //Calculates the fare transfers to complete the journey with the optimal ticket for each transfer with regards to optimitzing the overall price of the journey
+  for (auto leg : journey.legs_)
+  {
+    //find all possible tickets according to the rider category
+    
+    //generate labels for the cost and current ticket at the leg / location_idx
+
+    //prune labels that are dominated
+
+    //compare paths once we arrive at the end and recommened the cheapest one
+  }
+  
+}
+
 }  // namespace nigiri
