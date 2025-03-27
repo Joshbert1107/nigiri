@@ -310,6 +310,7 @@ bool join(timetable const& tt,
   return false;
 }
 
+//returns the a vctor fare legs that can be treated as an effective fare leg, since they are displayed to riders as single service
 std::vector<journey::leg const*> get_transit_legs(journey const& j) {
   auto transit_legs = std::vector<journey::leg const*>{};
   for (auto const& l : j.legs_) {
@@ -322,6 +323,7 @@ std::vector<journey::leg const*> get_transit_legs(journey const& j) {
 
 using joined_legs_t = std::vector<std::vector<journey::leg const*>>;
 
+//joins together effective_fare_legs so that the ones with the same source share a subvector
 joined_legs_t join_legs(timetable const& tt,
                         std::vector<journey::leg const*> const& transit_legs) {
   auto const has_equal_src = [&](journey::leg const* a_l,
@@ -386,6 +388,7 @@ timeframe_group_idx_t match_timeframe(timetable const& tt,
   return timeframe_group_idx_t::invalid();
 }
 
+//finds rules that are valid for the effective fare leg and sorts them by lowest price and matching rider category
 std::pair<source_idx_t, std::vector<fares::fare_leg_rule>> match_leg_rule(
     timetable const& tt, effective_fare_leg_t const& joined_legs) {
   auto const& first = joined_legs.front();
@@ -415,6 +418,7 @@ std::pair<source_idx_t, std::vector<fares::fare_leg_rule>> match_leg_rule(
                       to.time(event_type::kArr));
 
   namespace sv = std::views;
+  //removes the invalid elements from the rules so that they do not show up in later comparison
   auto concrete_network =
       fare.fare_leg_rules_ |
       sv::transform([](auto const& r) { return r.network_; }) |
@@ -486,6 +490,7 @@ std::pair<source_idx_t, std::vector<fares::fare_leg_rule>> match_leg_rule(
   return {src, matching_rules};
 }
 
+//checks wether the rules of the first(from) rule, the current rule and the next rule match in order for the rules to be joined together
 bool fare_transfer_matches([[maybe_unused]] timetable const& tt,
                            fares const& f,
                            fares::fare_transfer_rule const& r,
@@ -578,6 +583,7 @@ bool fare_transfer_matches([[maybe_unused]] timetable const& tt,
          to_leg_group_matches;
 }
 
+//finds the first matching rule among the rules of the next leg
 std::optional<fares::fare_leg_rule> find_fare_transfer_match(
     timetable const& tt,
     fares const& f,
@@ -599,6 +605,8 @@ std::optional<fares::fare_leg_rule> find_fare_transfer_match(
   return std::nullopt;
 }
 
+//filters the given leg rule, such that the leg only contains said rule or none if it is unimportant.
+//Useful for filtering the exact rule that was a match
 fare_leg filter_rule(fares::fare_transfer_rule const& transfer_rule,
                      fare_leg const& l,
                      std::optional<fares::fare_leg_rule> const& leg_rule,
@@ -704,10 +712,12 @@ float price(fares const& f,
   return sum;
 }
 
+//returns a vector of transfers containing the cheapest alternatives for each combination of rider category and fare media
 std::vector<std::vector<fare_transfer>> join_transfers(
     timetable const& tt, std::vector<fare_leg> const& fare_legs) {
   auto all_transfers = std::vector<std::vector<fare_transfer>>{};
   utl::equal_ranges_linear(
+    //groups fare legs with the same source and applies the defined function to each group in order to convert them into finished transfers
       fare_legs,
       [](fare_leg const& a, fare_leg const& b) { return a.src_ == b.src_; },
       [&](std::vector<fare_leg>::const_iterator const from_it,
@@ -720,6 +730,7 @@ std::vector<std::vector<fare_transfer>> join_transfers(
           transfers.push_back({{}, {*from_it}});
           return;
         }
+        //if there is more than one fare leg that shares the same source:
 
         auto const& f = tt.fares_[from_it->src_];
 
@@ -737,6 +748,7 @@ std::vector<std::vector<fare_transfer>> join_transfers(
           std::vector<fare_transfer> transfers_;
           std::vector<fare_leg>::const_iterator it_;
         };
+        //print functionality
         [[maybe_unused]] auto const to_string = [&](queue_entry const& e) {
           return fmt::format(
               "#transfers={}, transfers={}, it={}", e.transfers_.size(),
@@ -749,7 +761,7 @@ std::vector<std::vector<fare_transfer>> join_transfers(
         };
 
         auto q = std::vector<queue_entry>{{.transfers_ = {}, .it_ = from_it}};
-        auto alternatives = std::vector<std::vector<fare_transfer>>{};
+        auto alternatives = std::vector<std::vector<fare_transfer>>{}; //meant to contain all transfers that are possible
         while (!q.empty()) {
           auto curr = q.back();
           q.resize(q.size() - 1U);
@@ -762,9 +774,9 @@ std::vector<std::vector<fare_transfer>> join_transfers(
           auto has_match = false;
           for (auto const [r_i, r] : utl::enumerate(f.fare_transfer_rules_)) {
             for (auto const [from_i, from_rule] :
-                 utl::enumerate(curr.it_->rules_)) {
-              for (auto const [second_i, second_rule] :
-                   utl::enumerate(std::next(curr.it_)->rules_)) {
+                 utl::enumerate(curr.it_->rules_)) { //loops over rules in the queue entry
+              for (auto const [second_i, second_rule] : 
+                   utl::enumerate(std::next(curr.it_)->rules_)) { // starts one rule after the one in the first loop
                 auto const initial_match = fare_transfer_matches(
                     tt, f, r, *curr.it_, *std::next(curr.it_), from_rule,
                     from_rule, second_rule, concrete_from, concrete_to);
@@ -790,13 +802,14 @@ std::vector<std::vector<fare_transfer>> join_transfers(
                 if (!initial_match) {
                   continue;
                 }
+                //there is an initial match
 
                 has_match = true;
 
                 auto const from = curr.it_;
                 auto it = from;
                 auto next = std::next(it);
-                auto matched =
+                auto matched = // from legs that only contain the rule that was a match
                     std::vector<fare_leg>{filter_rule(r, *it, from_rule, 0U)};
                 auto remaining_transfers =
                     r.transfer_count_ > 0 ? r.transfer_count_ : -1;
@@ -806,7 +819,7 @@ std::vector<std::vector<fare_transfer>> join_transfers(
                   auto const match =
                       remaining_transfers > 0
                           ? std::nullopt
-                          : find_fare_transfer_match(
+                          : find_fare_transfer_match( // once there are no transfers left in the transfer rule, we need to find a new rule to continue with
                                 tt, f, r, *from, *next, from_rule, pred_rule,
                                 concrete_from, concrete_to);
                   if (remaining_transfers > 0 || match.has_value()) {
@@ -823,19 +836,19 @@ std::vector<std::vector<fare_transfer>> join_transfers(
                 }
 
                 auto copy = curr.transfers_;
-                copy.push_back(fare_transfer{r, std::move(matched)});
+                copy.push_back(fare_transfer{r, std::move(matched)}); //adds the legs with matching rules as next transfer
 
                 if (next == to_it) {
                   // End reached. Write alternative.
                   trace("FINISHED -> WRITE ALTERNATIVE\n");
                   alternatives.emplace_back(std::move(copy));
                 } else if (std::next(next) == to_it) {
-                  // Single leg left, no transfer to match.
+                  // Single leg left, no transfer to match. Just add last leg and add alternative
                   copy.push_back(fare_transfer{{}, {*next}});
                   trace("SINGLE LEG LEFT -> WRITE ALTERNATIVE [#rules={}]\n",
                         next->rules_.size());
                   alternatives.emplace_back(std::move(copy));
-                } else {
+                } else { //more than one leg left, create new queue entry
                   auto e =
                       queue_entry{.transfers_ = std::move(copy), .it_ = next};
                   trace("NOT FINISHED [remaining_transfers={}] -> ENQUEUE {}\n",
@@ -846,12 +859,12 @@ std::vector<std::vector<fare_transfer>> join_transfers(
             }
           }
 
-          if (!has_match) {
+          if (!has_match) { //none of the transfer rules matched
             auto copy = curr.transfers_;
-            copy.push_back(fare_transfer{{}, {*curr.it_}});
+            copy.push_back(fare_transfer{{}, {*curr.it_}}); //adds a transfer with no rules and the current first fare leg
             if (std::next(curr.it_, 2) == to_it) {
               trace("NO MATCH, FINISHED [TWO LEFT] -> WRITE ALTERNATIVE\n");
-              copy.push_back(fare_transfer{{}, {*std::next(curr.it_)}});
+              copy.push_back(fare_transfer{{}, {*std::next(curr.it_)}}); 
               alternatives.emplace_back(std::move(copy));
             } else if (std::next(curr.it_) == to_it) {
               trace("NO MATCH, FINISHED [ONE LEFT] -> WRITE ALTERNATIVE\n");
@@ -859,10 +872,10 @@ std::vector<std::vector<fare_transfer>> join_transfers(
             } else {
               trace("NO MATCH -> ENQUEUE\n\n");
               q.push_back(
-                  {.transfers_ = std::move(copy), .it_ = std::next(curr.it_)});
+                  {.transfers_ = std::move(copy), .it_ = std::next(curr.it_)}); //Enques it again, has first fare leg as first transfer and tries matching again
             }
           }
-        }
+        } //end of queue 
 
         utl::verify(!alternatives.empty(), "no alternatives");
 
@@ -873,20 +886,20 @@ std::vector<std::vector<fare_transfer>> join_transfers(
             if (x.rule_.has_value() &&
                 x.rule_->fare_product_ != fare_product_idx_t::invalid()) {
               auto const& p = f.fare_products_[x.rule_->fare_product_];
-              combinations.emplace(p.rider_category_, p.media_);
+              combinations.emplace(p.rider_category_, p.media_); // adds a combination for the category and media of each ticket in the transfers
             }
-            for (auto const& l : x.legs_) {
+            for (auto const& l : x.legs_) { 
               for (auto const& r : l.rules_) {
                 if (r.fare_product_ != fare_product_idx_t::invalid()) {
                   auto const& p = f.fare_products_[r.fare_product_];
-                  combinations.emplace(p.rider_category_, p.media_);
+                  combinations.emplace(p.rider_category_, p.media_); //adds a combination for the tickets that belong to the individual fare legs
                 }
               }
             }
           }
         }
 
-        auto cheapest_alternatives = std::vector<std::vector<fare_transfer>>{};
+        auto cheapest_alternatives = std::vector<std::vector<fare_transfer>>{}; //contains a cheapest alternative for each combination of rider category and fare media
 
         trace("COMBINATIONS:\n");
         for (auto const& [r, m] : combinations) {
@@ -897,7 +910,7 @@ std::vector<std::vector<fare_transfer>> join_transfers(
                 (m == fare_media_idx_t::invalid()
                      ? "-"
                      : tt.strings_.get(f.fare_media_[m].name_)));
-          utl::sort(alternatives, [&](std::vector<fare_transfer> const& a,
+          utl::sort(alternatives, [&](std::vector<fare_transfer> const& a, //sorts the alternatives by price for a given combination
                                       std::vector<fare_transfer> const& b) {
             return price(f, a, {r, m}) < price(f, b, {r, m});
           });
@@ -922,7 +935,7 @@ std::vector<std::vector<fare_transfer>> join_transfers(
 std::vector<std::vector<fare_transfer>> get_fares(timetable const& tt,
                                                   journey const& j) {
   return join_transfers(
-      tt, utl::to_vec(join_legs(tt, get_transit_legs(j)),
+      tt, utl::to_vec(join_legs(tt, get_transit_legs(j)), 
                       [&](effective_fare_leg_t const& joined_leg) {
                         auto const [src, rules] =
                             match_leg_rule(tt, joined_leg);
@@ -936,19 +949,26 @@ struct ticket_graph_node
   std::vector<ticket_graph_node> children;
 };
 
-std::vector<fare_transfer> get_optimal_tickets(journey journey, rider_category_idx_t rider_category, std::vector<ticket_graph_node> ticket_graph)
+std::vector<fare_transfer> get_optimal_tickets(timetable const& timetable, journey journey, rider_category_idx_t rider_category, std::vector<ticket_graph_node> ticket_graph)
 {
   //Calculates the fare transfers to complete the journey with the optimal ticket for each transfer with regards to optimitzing the overall price of the journey
-  for (auto leg : journey.legs_)
-  {
-    //find all possible tickets according to the rider category
-    
-    //generate labels for the cost and current ticket at the leg / location_idx
+  auto joined_legs = get_transit_legs(journey);
+  auto const& first = joined_legs.front();
+  auto const& last = joined_legs.back();
 
-    //prune labels that are dominated
+  auto const first_r = std::get<journey::run_enter_exit>(first->uses_).r_;
+  auto const first_trip = rt::frun{timetable, nullptr, first_r};
 
-    //compare paths once we arrive at the end and recommened the cheapest one
-  }
+  auto const last_r = std::get<journey::run_enter_exit>(last->uses_).r_;
+  auto const last_trip = rt::frun{timetable, nullptr, last_r};
+
+  auto const from = first_trip[first_r.stop_range_.from_];
+  auto const to = last_trip[last_r.stop_range_.to_ - 1U];
+
+  auto const src = timetable.trip_id_src_[timetable.trip_ids_[first_trip.trip_idx()].front()];
+  auto const& fare = timetable.fares_[src];
+  fare.
+  
   
 }
 

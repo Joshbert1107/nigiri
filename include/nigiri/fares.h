@@ -24,6 +24,7 @@ struct area {
   string_idx_t name_;
 };
 
+//rider category and media of a fare
 struct fare_props {
   bool matches(fare_props) const;
 
