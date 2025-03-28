@@ -943,31 +943,47 @@ std::vector<std::vector<fare_transfer>> get_fares(timetable const& tt,
                       }));
 }
 
-struct ticket_graph_node
-{
-  fare_product_idx_t ticket_idx;
-  std::vector<ticket_graph_node> children;
-};
+// struct ticket_graph_node
+// {
+//   fare_product_idx_t ticket_idx;
+//   std::vector<ticket_graph_node> children;
+// };
 
-std::vector<fare_transfer> get_optimal_tickets(timetable const& timetable, journey journey, rider_category_idx_t rider_category, std::vector<ticket_graph_node> ticket_graph)
+//filters fare legs so that they only contain the rules matching the given rider category
+std::vector<nigiri::fare_leg> filter_fare_legs_by_rider (timetable const& timetable, std::vector<nigiri::fare_leg> fare_legs, rider_category_idx_t rider_category)
 {
+  std::vector<nigiri::fare_leg> filtered_legs {};
+  for (auto fare_leg: fare_legs)
+  {
+    auto src = fare_leg.src_;
+    auto fare = timetable.fares_[src];
+    //  sv::filter([](auto a) { return a != leg_group_idx_t::invalid(); });
+    auto rules = fare_leg.rules_;
+    std::vector<nigiri::fares::fare_leg_rule> filtered_rules;
+    std::copy_if(begin(rules), end(rules),std::back_inserter(filtered_rules), [&](auto rule)
+    {
+      return rule.props(timetable.fares_[fare_leg.src_]).rider_category_ == rider_category || fare.rider_categories_[rider_category].is_default_fare_category_;
+    });
+    nigiri::fare_leg filtered_leg {fare_leg.src_, fare_leg.joined_leg_, filtered_rules};
+    filtered_legs.emplace_back(filtered_leg);
+  }
+  return filtered_legs;
+
+}
+
   //Calculates the fare transfers to complete the journey with the optimal ticket for each transfer with regards to optimitzing the overall price of the journey
-  auto joined_legs = get_transit_legs(journey);
-  auto const& first = joined_legs.front();
-  auto const& last = joined_legs.back();
+std::vector<fare_transfer> get_optimal_tickets(timetable const& timetable, journey journey, rider_category_idx_t rider_category, hash_map<fare_product_idx_t, std::vector<fare_product_idx_t>> ticket_graph)
+{
+  auto fare_legs = utl::to_vec(join_legs(timetable, get_transit_legs(journey)), 
+  [&](effective_fare_leg_t const& joined_leg) {
+    auto const [src, rules] =
+        match_leg_rule(timetable, joined_leg);
+    return fare_leg{src, joined_leg, rules};
+  });
 
-  auto const first_r = std::get<journey::run_enter_exit>(first->uses_).r_;
-  auto const first_trip = rt::frun{timetable, nullptr, first_r};
-
-  auto const last_r = std::get<journey::run_enter_exit>(last->uses_).r_;
-  auto const last_trip = rt::frun{timetable, nullptr, last_r};
-
-  auto const from = first_trip[first_r.stop_range_.from_];
-  auto const to = last_trip[last_r.stop_range_.to_ - 1U];
-
-  auto const src = timetable.trip_id_src_[timetable.trip_ids_[first_trip.trip_idx()].front()];
-  auto const& fare = timetable.fares_[src];
-  fare.
+  //filter legs so that they match the rider category
+  auto filtered_legs = filter_fare_legs_by_rider(timetable, fare_legs, rider_category);
+  
   
   
 }
