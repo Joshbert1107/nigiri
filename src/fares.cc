@@ -943,11 +943,46 @@ std::vector<std::vector<fare_transfer>> get_fares(timetable const& tt,
                       }));
 }
 
-// struct ticket_graph_node
-// {
-//   fare_product_idx_t ticket_idx;
-//   std::vector<ticket_graph_node> children;
-// };
+// ------------------------------------------------------------------structs---------------------------------------------------------------------
+
+//an edge of the ticket_graph modeling the transition between to tickets
+struct ticket_graph_edge
+{
+  //start of the edge
+  fare_product_idx_t tail;
+  //end/target of the edge
+  fare_product_idx_t head;
+  // TODO: fill out
+  bool operator()() {return true;}; 
+};
+
+//The ticket graph for calculating the evolution of a ticket when following a trip
+struct ticket_graph
+{
+  //the edges of the graph
+  std::vector<ticket_graph_edge> edges;
+  //The outgoing edges of that ticket_idx
+  hash_map<fare_product_idx_t, std::vector<ticket_graph_edge>> outgoing_edges;
+};
+
+//label to compare different transfers by
+struct ticket_comparison_label
+{
+  fare_product_idx_t ticket_idx;
+  float cumulative_price; 
+  //nigiri::unixtime_t arrival_time;
+};
+
+//A fare leg with a set of labels used to calculate the optimal ticket
+struct labeled_fare_leg
+{
+  fare_leg fare_leg;
+  //meant to store the set of labels that do not dominate each other and therefore remain a valid option
+  std::vector<ticket_comparison_label> labels;
+};
+
+// ------------------------------------------------------------------helper methods---------------------------------------------------------------------
+
 
 //filters fare legs so that they only contain the rules matching the given rider category
 std::vector<nigiri::fare_leg> filter_fare_legs_by_rider (timetable const& timetable, std::vector<nigiri::fare_leg> fare_legs, rider_category_idx_t rider_category)
@@ -964,6 +999,13 @@ std::vector<nigiri::fare_leg> filter_fare_legs_by_rider (timetable const& timeta
     {
       return rule.props(timetable.fares_[fare_leg.src_]).rider_category_ == rider_category || fare.rider_categories_[rider_category].is_default_fare_category_;
     });
+    if(filtered_rules.empty()) //if the rider category cannot be matched exactly, the default should be used
+    {
+      std::copy_if(begin(rules), end(rules),std::back_inserter(filtered_rules), [&](auto rule)
+      {
+        return  fare.rider_categories_[rule.props(timetable.fares_[fare_leg.src_]).rider_category_].is_default_fare_category_;
+      });
+    }
     nigiri::fare_leg filtered_leg {fare_leg.src_, fare_leg.joined_leg_, filtered_rules};
     filtered_legs.emplace_back(filtered_leg);
   }
@@ -971,9 +1013,12 @@ std::vector<nigiri::fare_leg> filter_fare_legs_by_rider (timetable const& timeta
 
 }
 
+// ------------------------------------------------------------------main method---------------------------------------------------------------------
+
   //Calculates the fare transfers to complete the journey with the optimal ticket for each transfer with regards to optimitzing the overall price of the journey
-std::vector<fare_transfer> get_optimal_tickets(timetable const& timetable, journey journey, rider_category_idx_t rider_category, hash_map<fare_product_idx_t, std::vector<fare_product_idx_t>> ticket_graph)
+std::vector<fare_transfer> get_optimal_tickets(timetable const& timetable, journey journey, rider_category_idx_t rider_category, ticket_graph ticket_graph)
 {
+  //journey legs already contain arrival and departure times so there is no need to check for this
   auto fare_legs = utl::to_vec(join_legs(timetable, get_transit_legs(journey)), 
   [&](effective_fare_leg_t const& joined_leg) {
     auto const [src, rules] =
@@ -981,11 +1026,32 @@ std::vector<fare_transfer> get_optimal_tickets(timetable const& timetable, journ
     return fare_leg{src, joined_leg, rules};
   });
 
-  //filter legs so that they match the rider category
-  auto filtered_legs = filter_fare_legs_by_rider(timetable, fare_legs, rider_category);
-  
+  //filter rules in the fare legs so that they match the rider category
+  auto filtered_fare_legs = filter_fare_legs_by_rider(timetable, fare_legs, rider_category);
+  //initialize labels
+  std::vector<labeled_fare_leg> labeled_fare_legs{};
+  for (auto leg: filtered_fare_legs)
+  {
+    labeled_fare_legs.push_back({leg, std::vector<ticket_comparison_label>{}});
+  }
+  //update and compare labels based on a queue
+
   
   
 }
 
 }  // namespace nigiri
+
+/* TODO: 
+- update graph
+- introduce labels
+- build a queue/set for labels to processed
+- Label: Arrival Time + fare state 
+- Domination: Ticket, dass weiter hinten im Graph liegt bei gleichem Preis, niedrigerer Preis bei gleichem Ticket
+- Attribute: Symbol and Price
+- fare transition: Price + Price in Attribute, Ticket changes if it hits an edge
+- Footpaths? Extra Labels?, Transfer and Boarding arcs?
+- Label duplication for neutral zones
+- maybe use tuple in join transfers for comparison
+
+ */
