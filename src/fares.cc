@@ -776,7 +776,7 @@ std::vector<std::vector<fare_transfer>> join_transfers(
             for (auto const [from_i, from_rule] :
                  utl::enumerate(curr.it_->rules_)) { //loops over rules in the queue entry
               for (auto const [second_i, second_rule] : 
-                   utl::enumerate(std::next(curr.it_)->rules_)) { // starts one rule after the one in the first loop
+                   utl::enumerate(std::next(curr.it_)->rules_)) { // starts one fare_leg after the one in the first loop
                 auto const initial_match = fare_transfer_matches(
                     tt, f, r, *curr.it_, *std::next(curr.it_), from_rule,
                     from_rule, second_rule, concrete_from, concrete_to);
@@ -952,8 +952,10 @@ struct ticket_graph_edge
   fare_product_idx_t tail;
   //end/target of the edge
   fare_product_idx_t head;
-  // TODO: fill out
-  bool operator()() {return true;}; 
+  //the symbol picked up when transitioning via this edge
+  string symbol;
+  //the price change of this edge
+  float price_increase;
 };
 
 //The ticket graph for calculating the evolution of a ticket when following a trip
@@ -982,7 +984,6 @@ struct labeled_fare_leg
 };
 
 // ------------------------------------------------------------------helper methods---------------------------------------------------------------------
-
 
 //filters fare legs so that they only contain the rules matching the given rider category
 std::vector<nigiri::fare_leg> filter_fare_legs_by_rider (timetable const& timetable, std::vector<nigiri::fare_leg> fare_legs, rider_category_idx_t rider_category)
@@ -1034,10 +1035,27 @@ std::vector<fare_transfer> get_optimal_tickets(timetable const& timetable, journ
   {
     labeled_fare_legs.push_back({leg, std::vector<ticket_comparison_label>{}});
   }
+  std::vector<fare_transfer> output_transfers;
   //update and compare labels based on a queue
+  //only the fare legs from the same source can have meaningful interactions,applies the function to each group of fare legs that have the same source 
+  utl::equal_ranges_linear(labeled_fare_legs, [] (labeled_fare_leg const& lf_1, labeled_fare_leg const& lf_2) {return lf_1.fare_leg.src_ == lf_2.fare_leg.src_;}, 
+  [&] (std::vector<labeled_fare_leg>::const_iterator begin_iterator, std::vector<labeled_fare_leg>::const_iterator end_iterator)
+  {
+    //queue for labels to be processed
+    std::vector<labeled_fare_leg> queue {};
+    queue.push_back(*begin_iterator);
+    while (!queue.empty())
+    {
+      auto current = queue.back();
+      queue.resize(queue.size() - 1U);
+      //propagate labels based on the current queue element
+      
+    }
 
-  
-  
+
+
+  });
+  return output_transfers;
 }
 
 }  // namespace nigiri
